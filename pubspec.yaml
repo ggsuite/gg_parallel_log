@@ -1,0 +1,10 @@
+name: gg_parallel_log
+description: "Interactive CLI logger for parallel processes: inline overview, fullscreen lane details, error filter, search, cancel and a plain fallback."
+version: 0.0.1
+repository: https://github.com/ggsuite/gg_parallel_log.git
+
+environment:
+  sdk: ">=3.13.0 <4.0.0"
+dev_dependencies:
+  lints: ^6.1.0
+  test: ^1.33.0
