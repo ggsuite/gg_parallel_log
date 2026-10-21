@@ -38,41 +38,29 @@ dart pub add gg_parallel_log
 
 ## Verwendung
 
-Lege ein Log an, führe jede Aufgabe in einer Lane aus und schließe das Log
-am Ende ab. Die Lane reicht ihr `log` überall weiter, wo ein `GgLog`
-erwartet wird; alles, was eine Aufgabe mit `print` ausgibt, landet ebenfalls
-in ihrer Lane. Aus
+Übergib `runAll` eine Aufgabe pro Lane. Jede Aufgabe bekommt ihre Lane,
+deren `log` überall passt, wo ein `GgLog` erwartet wird; alles, was eine
+Aufgabe mit `print` ausgibt, landet ebenfalls in ihrer Lane. `runAll`
+listet alle Lanes sofort, führt höchstens `concurrency` gleichzeitig aus,
+hinterlässt die Zusammenfassung und liefert das Ergebnis. Aus
 [example/gg_parallel_log_example.dart](example/gg_parallel_log_example.dart),
-das die Veröffentlichung von acht Paketen simuliert, drei gleichzeitig:
+das die Veröffentlichung von acht Paketen simuliert:
 
 ```dart
 final log = GgParallelLog(title: 'gg do publish');
-final queue = [..._packages.keys];
-for (final package in queue) {
-  log.lane(package);
-}
-
-Future<void> worker() async {
-  while (queue.isNotEmpty) {
-    final package = queue.removeAt(0);
-    try {
-      await log.run(package, (lane) => _publish(lane, _packages[package]!));
-    } catch (_) {
-      // The lane shows the error; the other packages go on.
-    }
-  }
-}
-
-try {
-  await Future.wait([for (var i = 0; i < 3; i++) worker()]);
-} finally {
-  // Restores the terminal and leaves the summary, even after a crash.
-  await log.finish();
-}
+final result = await log.runAll({
+  for (final MapEntry(key: package, value: tests) in _packages.entries)
+    package: (lane) => _publish(lane, tests),
+}, concurrency: 3);
+exitCode = result.exitCode;
 ```
 
+Für volle Kontrolle legst du Lanes mit `log.lane(name)` an, führst Aufgaben
+mit `log.run(name, task)` aus und rufst `log.finish()` in einem `finally`
+auf. `run` wirft, was die Aufgabe wirft, oder eine
+`GgParallelLogCancelledException`, sobald der Nutzer die Lane abbricht.
 Einen Kindprozess protokolliert eine Lane mit `await lane.pipe(process)`;
-bricht der Nutzer die Lane ab, wird der Prozess beendet.
+beim Abbruch wird der ganze Prozessbaum beendet.
 
 ### Tasten
 
@@ -84,11 +72,13 @@ bricht der Nutzer die Lane ab, wird der Prozess beendet.
 | Übersicht | `q` `q` | Alle laufenden Lanes abbrechen |
 | Beide | `x` `x` | Ausgewählte Lane abbrechen |
 | Beide | `s` | Ausgabe der Lane in eine Datei speichern |
-| Vollbild | `↑` `↓` `PgUp` `PgDn` `Home` `End` | Scrollen; `End` folgt der Ausgabe |
+| Vollbild | `↑` `↓` / `k` `j` | Zeilenweise scrollen |
+| Vollbild | `b` `Space` / `PgUp` `PgDn` | Seitenweise scrollen |
+| Vollbild | `g` `G` / `Home` `End` | Zum Anfang, dem Ende folgen |
 | Vollbild | `←` `→` | Zur vorigen oder nächsten Lane wechseln |
 | Vollbild | `/` `n` `N` | Suchen, zum nächsten oder vorigen Treffer springen |
 | Vollbild | `Esc` | Zurück zur Übersicht |
-| Überall | `Strg+C` | Alle Lanes abbrechen; ein zweites Mal beendet |
+| Überall | `Strg+C` | Alle Lanes abbrechen; ein zweites Mal beendet mit 130 |
 
 ![Eine fehlgeschlagene Lane im Vollbild mit Suche](doc/images/detail_search.png)
 
@@ -101,17 +91,35 @@ Pfad zum vollständigen Log, die Ergebnistabelle steht zuletzt:
 Ohne Terminal, etwa in CI oder einer Pipe, schreibt das Log jede Zeile mit
 ihrer Lane als Präfix, gefolgt von derselben Zusammenfassung.
 
+## Plattformen
+
+Die Live-Ansicht läuft unter Linux, macOS und Windows. Tasten werden direkt
+von der Konsole gelesen (`poll` unter POSIX, die Konsoleneingabe unter
+Windows), daher bleibt Darts `stdin` unberührt und ein Programm kann danach
+noch Rückfragen stellen. Solange die Ansicht offen ist, kommen `Strg+C`,
+`Strg+Z` und `Strg+S` als Tasten statt als Signale an und treffen daher
+keine Kindprozesse. Der Terminalzustand wird mit `stty -g` gesichert und
+bei `finish`, `SIGTERM` und `SIGHUP` wiederhergestellt; stürzt das Programm
+ab, stellt ihn unter POSIX ein kleiner Wächterprozess wieder her, unter
+Windows Dart selbst. Die CI testet auf
+allen drei Systemen und bedient die Live-Ansicht unter Linux und macOS in
+tmux ([tool/interactive_smoke_test.sh](tool/interactive_smoke_test.sh)).
+
 ## Grenzen
 
-- Es protokolliert, es plant nicht: Wie viele Aufgaben gleichzeitig und in
-  welcher Reihenfolge laufen, entscheidet der Aufrufer
-- Die interaktive Ansicht liest stdin, das ein Prozess nur einmal abhören
-  kann; Aufgaben dürfen stdin nicht lesen, solange die Ansicht offen ist
+- Abbrechen ist für Aufgaben kooperativ: `run` kehrt sofort zurück, eine
+  Aufgabe läuft aber weiter, bis sie `lane.isCancelled` prüft; gepipte
+  Prozesse werden samt Prozessbaum beendet
 - Was direkt auf stdout geschrieben wird, etwa von einem Kindprozess mit
   `inheritStdio`, umgeht die Lanes und zerstört die Ansicht; leite es
   stattdessen in eine Lane
-- Breite Zeichen werden mit einer eingebauten Tabelle vermessen; seltene
-  Emoji können um eine Spalte danebenliegen
+- Breiten stammen aus einer eingebauten Tabelle: Seltene Emoji und
+  Terminals, die mehrdeutige Zeichen breit zeichnen, können um eine Spalte
+  danebenliegen
+- Die Ausgabe ist UTF-8; ein Terminal mit anderer Kodierung zeigt die
+  Symbole verstümmelt
+- GNU screen ohne `altscreen on` kann die Vollbildansicht nicht sauber
+  zeigen
 
 ## Dokumentation
 

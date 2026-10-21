@@ -8,59 +8,62 @@ import 'dart:math';
 
 import 'package:gg_console_colors/gg_console_colors.dart';
 
+import 'gg_parallel_log_format.dart';
 import 'gg_parallel_log_lane.dart';
-import 'gg_parallel_log_overview.dart';
-import 'gg_parallel_log_saver.dart';
 import 'gg_parallel_log_status.dart';
 import 'gg_parallel_log_text.dart';
 
 // #############################################################################
 /// Builds what stays in the scrollback once all lanes are done.
 ///
-/// Lists every lane and repeats the last lines of each failed lane, so no
-/// error gets lost when the interactive view disappears.
+/// Failed lanes come first with their last lines, the result table last.
 class GgParallelLogSummary {
   /// Creates the summary of [lanes]; failed lanes show [tail] lines.
-  GgParallelLogSummary({
+  ///
+  /// [savedLogs] maps lane names to the files holding their full output.
+  const GgParallelLogSummary({
     required this.title,
     required this.lanes,
     this.elapsed = Duration.zero,
     this.width = 80,
     this.tail = 40,
-    GgParallelLogSaver? saver,
-  }) : saver = saver ?? GgParallelLogSaver();
+    this.savedLogs = const {},
+  });
 
   /// Creates an example summary for tests and docs.
   factory GgParallelLogSummary.example({
+    String? title,
     List<GgParallelLogLane>? lanes,
+    Duration? elapsed,
+    int? width,
     int? tail,
-    GgParallelLogSaver? saver,
+    Map<String, String>? savedLogs,
   }) => GgParallelLogSummary(
-    title: 'gg do publish',
+    title: title ?? 'gg do publish',
     lanes: lanes ?? [GgParallelLogLane.example()],
+    elapsed: elapsed ?? Duration.zero,
+    width: width ?? 80,
     tail: tail ?? 40,
-    saver: saver,
+    savedLogs: savedLogs ?? const {},
   );
 
   // ...........................................................................
   /// Returns the summary, ending with a line break.
-  ///
-  /// The failed lanes come first, so the result stays in sight at the end.
   String text() {
-    final nameWidth = GgParallelLogOverview.nameWidth(lanes);
+    final nameWidth = GgParallelLogFormat.nameWidth(lanes);
     final lines = [
       for (final lane in lanes)
         if (lane.status == GgParallelLogStatus.error) ..._failed(lane),
-      ' ${bold(title)} · ${GgParallelLogOverview.counts(lanes)} · '
+      ' ${bold(title)} · ${GgParallelLogFormat.counts(lanes)} · '
           '${GgParallelLogText.duration(elapsed)}',
       for (final lane in lanes)
-        GgParallelLogOverview.row(lane, nameWidth: nameWidth),
+        GgParallelLogFormat.row(lane, nameWidth: nameWidth),
     ];
     return '${lines.join('\n')}\n';
   }
 
   // ...........................................................................
-  /// The title shown in the first line.
+  /// The title shown above the result table.
   final String title;
 
   /// The lanes to summarize.
@@ -75,8 +78,8 @@ class GgParallelLogSummary {
   /// The number of lines repeated for each failed lane.
   final int tail;
 
-  /// Saves the full output of failed lanes that is longer than [tail].
-  final GgParallelLogSaver saver;
+  /// The files holding the full output of lanes, by lane name.
+  final Map<String, String> savedLogs;
 
   // ######################
   // Private
@@ -86,17 +89,20 @@ class GgParallelLogSummary {
   List<String> _failed(GgParallelLogLane lane) {
     final lines = lane.lines;
     final skipped = max(0, lines.length - tail);
-    final rule = '─' * max(3, min(width, 80) - lane.name.length - 6);
+    final nameWidth = GgParallelLogText.visibleWidth(lane.name);
+    final rule = '─' * max(3, min(width, 80) - nameWidth - 6);
+    final saved = savedLogs[lane.name];
+    final earlier = GgParallelLogFormat.plural(
+      skipped,
+      'earlier line',
+      'earlier lines',
+    );
     return [
       ' ${lane.status.icon(0)} ${bold(lane.name)} ${darkGray(rule)}',
       if (skipped > 0)
-        darkGray(
-          '   … $skipped earlier lines · full log: ${saver.save(lane).path}',
-        ),
+        darkGray('   … $earlier${saved == null ? '' : ' · full log: $saved'}'),
       for (final line in lines.skip(skipped))
-        '   ${darkGray(GgParallelLogText.duration(line.time))} '
-            '${darkGray('│')} '
-            '${line.isError ? cError(line.text) : line.text}',
+        GgParallelLogFormat.output(line, prefix: '   '),
       '',
     ];
   }

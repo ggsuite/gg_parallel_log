@@ -9,19 +9,19 @@ import 'package:gg_console_colors/gg_console_colors.dart';
 // #############################################################################
 /// The state a lane of a parallel log is in.
 enum GgParallelLogStatus {
-  /// The lane is known but its task has not started yet
+  /// The lane is known but its task has not started yet.
   waiting,
 
-  /// The task of the lane is running
+  /// The task of the lane is running.
   running,
 
-  /// The task completed successfully
+  /// The task completed successfully.
   success,
 
-  /// The task failed
+  /// The task failed.
   error,
 
-  /// The lane was cancelled
+  /// The lane was cancelled.
   cancelled;
 
   // ...........................................................................

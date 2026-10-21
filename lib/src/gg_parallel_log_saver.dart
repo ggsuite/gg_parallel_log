@@ -13,7 +13,7 @@ import 'gg_parallel_log_lane.dart';
 import 'gg_parallel_log_text.dart';
 
 // #############################################################################
-/// Writes the output of a lane into a file.
+/// Writes the output of a lane into a file of its own.
 class GgParallelLogSaver {
   /// Creates a saver writing into [directory], by default a temp folder.
   GgParallelLogSaver({Directory? directory})
@@ -26,16 +26,19 @@ class GgParallelLogSaver {
       GgParallelLogSaver(directory: directory);
 
   // ...........................................................................
-  /// Writes all lines of [lane] without colors and returns the file.
+  /// Writes all lines of [lane] without colors and returns the new file.
+  ///
+  /// Never overwrites a file; a name in use gets a counter appended.
   File save(GgParallelLogLane lane) {
     directory.createSync(recursive: true);
-    final file = File(join(directory.path, '${_fileName(lane.name)}.log'));
-    final text = lane.lines.map((line) {
-      final time = GgParallelLogText.duration(line.time);
-      final prefix = line.isError ? '! ' : '';
-      return '$time $prefix${GgParallelLogText.stripAnsi(line.text)}\n';
-    }).join();
-    file.writeAsStringSync(text);
+    final file = _create(_baseName(lane.name));
+    file.writeAsStringSync(
+      lane.lines.map((line) {
+        final time = GgParallelLogText.duration(line.time);
+        final prefix = line.isError ? '! ' : '';
+        return '$time $prefix${GgParallelLogText.stripAnsi(line.text)}\n';
+      }).join(),
+    );
     return file;
   }
 
@@ -48,7 +51,21 @@ class GgParallelLogSaver {
   // ######################
 
   // ...........................................................................
-  static String _fileName(String laneName) {
+  File _create(String baseName) {
+    for (var counter = 1; ; counter++) {
+      final suffix = counter == 1 ? '' : '_$counter';
+      final file = File(join(directory.path, '$baseName$suffix.log'));
+      try {
+        file.createSync(exclusive: true);
+        return file;
+      } on FileSystemException {
+        if (!file.existsSync()) rethrow;
+      }
+    }
+  }
+
+  // ...........................................................................
+  static String _baseName(String laneName) {
     final now = clock.now();
     String two(int value) => value.toString().padLeft(2, '0');
     final stamp =

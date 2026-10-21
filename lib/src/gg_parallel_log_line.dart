@@ -4,11 +4,13 @@
 // Use of this source code is governed by terms that can be
 // found in the LICENSE file in the root of this package.
 
+import 'gg_parallel_log_text.dart';
+
 // #############################################################################
 /// One line written to a lane of a parallel log.
 class GgParallelLogLine {
   /// Creates a line with [text] logged [time] after the lane started.
-  const GgParallelLogLine({
+  GgParallelLogLine({
     required this.text,
     required this.time,
     this.isError = false,
@@ -32,6 +34,10 @@ class GgParallelLogLine {
   /// The time since the lane started.
   final Duration time;
 
-  /// True when the line was written to the error output.
+  /// Whether the line was written to the error output.
   final bool isError;
+
+  /// The text without colors and in lower case, as searches compare it.
+  late final String searchText = GgParallelLogText.stripAnsi(text)
+      .toLowerCase();
 }

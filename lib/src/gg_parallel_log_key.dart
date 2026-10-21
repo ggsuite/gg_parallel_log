@@ -7,46 +7,43 @@
 // #############################################################################
 /// The kinds of keys the interactive log reacts on.
 enum GgParallelLogKeyType {
-  /// Arrow up
+  /// The arrow up key.
   up,
 
-  /// Arrow down
+  /// The arrow down key.
   down,
 
-  /// Arrow left
+  /// The arrow left key.
   left,
 
-  /// Arrow right
+  /// The arrow right key.
   right,
 
-  /// Home or Pos1
+  /// The Home or Pos1 key.
   home,
 
-  /// End
+  /// The End key.
   end,
 
-  /// Page up
+  /// The Page Up key.
   pageUp,
 
-  /// Page down
+  /// The Page Down key.
   pageDown,
 
-  /// Enter or Return
+  /// The Enter or Return key.
   enter,
 
-  /// Escape
+  /// The Escape key.
   escape,
 
-  /// Backspace
+  /// The Backspace key.
   backspace,
 
-  /// Tabulator
-  tab,
-
-  /// Ctrl+C, when the terminal delivers it as a character
+  /// Ctrl+C, when the terminal delivers it as a character.
   ctrlC,
 
-  /// A printable character, see [GgParallelLogKey.char]
+  /// A printable character, see [GgParallelLogKey.char].
   char,
 }
 
@@ -61,13 +58,42 @@ class GgParallelLogKey {
     : this(GgParallelLogKeyType.char, char);
 
   /// Creates an example key for tests and docs.
-  factory GgParallelLogKey.example({
-    GgParallelLogKeyType? type,
-    String? char,
-  }) => GgParallelLogKey(type ?? GgParallelLogKeyType.char, char ?? 'f');
+  factory GgParallelLogKey.example({GgParallelLogKeyType? type, String? char}) {
+    final printable = type == null || type == GgParallelLogKeyType.char;
+    return GgParallelLogKey(
+      type ?? GgParallelLogKeyType.char,
+      char ?? (printable ? 'f' : ''),
+    );
+  }
+
+  // ...........................................................................
+  /// Returns true when this is the printable character [c].
+  bool isChar(String c) => type == GgParallelLogKeyType.char && char == c;
+
+  // ...........................................................................
+  @override
+  bool operator ==(Object other) =>
+      other is GgParallelLogKey && other.type == type && other.char == char;
+
+  // ...........................................................................
+  @override
+  int get hashCode => Object.hash(type, char);
+
+  // ...........................................................................
+  @override
+  String toString() => type == GgParallelLogKeyType.char ? char : type.name;
+
+  // ...........................................................................
+  /// The kind of the key.
+  final GgParallelLogKeyType type;
+
+  /// The character of a printable key, otherwise an empty string.
+  final String char;
 
   // ...........................................................................
   /// Splits the raw terminal [input] into the keys it holds.
+  ///
+  /// Skips unknown sequences, Alt combinations and control characters.
   static List<GgParallelLogKey> parse(String input) {
     final keys = <GgParallelLogKey>[];
     var index = 0;
@@ -80,37 +106,22 @@ class GgParallelLogKey {
         continue;
       }
       final c = _charAt(input, index);
-      keys.add(_single(c));
+      final key = _single(c);
+      if (key != null) keys.add(key);
       index += c.length;
     }
     return keys;
   }
 
-  // ...........................................................................
-  /// The kind of the key.
-  final GgParallelLogKeyType type;
-
-  /// The character of a printable key, otherwise an empty string.
-  final String char;
-
-  /// Returns true when this is the printable character [c].
-  bool isChar(String c) => type == GgParallelLogKeyType.char && char == c;
-
-  @override
-  bool operator ==(Object other) =>
-      other is GgParallelLogKey && other.type == type && other.char == char;
-
-  @override
-  int get hashCode => Object.hash(type, char);
-
-  @override
-  String toString() => type == GgParallelLogKeyType.char ? char : type.name;
-
   // ######################
   // Private
   // ######################
 
-  static final RegExp _sequence = RegExp(r'\x1B(\[[0-?]*[ -/]*[@-~]|O[@-~])');
+  /// Matches CSI and SS3 sequences, and ESC plus a character as Alt key.
+  static final RegExp _sequence = RegExp(
+    r'\x1B(\[[0-?]*[ -/]*[@-~]|O[@-~]|[^\x1B])',
+    unicode: true,
+  );
 
   static const Map<String, GgParallelLogKeyType> _sequences = {
     '\x1B[A': GgParallelLogKeyType.up,
@@ -127,6 +138,8 @@ class GgParallelLogKey {
     '\x1BOF': GgParallelLogKeyType.end,
     '\x1B[1~': GgParallelLogKeyType.home,
     '\x1B[4~': GgParallelLogKeyType.end,
+    '\x1B[7~': GgParallelLogKeyType.home,
+    '\x1B[8~': GgParallelLogKeyType.end,
     '\x1B[5~': GgParallelLogKeyType.pageUp,
     '\x1B[6~': GgParallelLogKeyType.pageDown,
   };
@@ -137,16 +150,15 @@ class GgParallelLogKey {
     '\x1B': GgParallelLogKeyType.escape,
     '\x7F': GgParallelLogKeyType.backspace,
     '\x08': GgParallelLogKeyType.backspace,
-    '\t': GgParallelLogKeyType.tab,
     '\x03': GgParallelLogKeyType.ctrlC,
   };
 
   // ...........................................................................
-  static GgParallelLogKey _single(String c) {
+  static GgParallelLogKey? _single(String c) {
     final type = _singles[c];
-    return type != null
-        ? GgParallelLogKey(type)
-        : GgParallelLogKey.printable(c);
+    if (type != null) return GgParallelLogKey(type);
+    final control = c.codeUnitAt(0) < 0x20;
+    return control ? null : GgParallelLogKey.printable(c);
   }
 
   // ...........................................................................

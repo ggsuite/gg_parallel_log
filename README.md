@@ -36,40 +36,27 @@ dart pub add gg_parallel_log
 
 ## Usage
 
-Create a log, run each task in a lane and finish the log at the end. The
-lane passes its `log` wherever a `GgLog` is expected; everything a task
-prints ends up in its lane as well. Taken from
+Hand `runAll` a task per lane. Each task gets its lane, whose `log` goes
+wherever a `GgLog` is expected; everything a task prints ends up in its
+lane as well. `runAll` lists all lanes at once, runs at most `concurrency`
+of them at a time, leaves the summary and returns the result. Taken from
 [example/gg_parallel_log_example.dart](example/gg_parallel_log_example.dart),
-which simulates publishing eight packages, three at a time:
+which simulates publishing eight packages:
 
 ```dart
 final log = GgParallelLog(title: 'gg do publish');
-final queue = [..._packages.keys];
-for (final package in queue) {
-  log.lane(package);
-}
-
-Future<void> worker() async {
-  while (queue.isNotEmpty) {
-    final package = queue.removeAt(0);
-    try {
-      await log.run(package, (lane) => _publish(lane, _packages[package]!));
-    } catch (_) {
-      // The lane shows the error; the other packages go on.
-    }
-  }
-}
-
-try {
-  await Future.wait([for (var i = 0; i < 3; i++) worker()]);
-} finally {
-  // Restores the terminal and leaves the summary, even after a crash.
-  await log.finish();
-}
+final result = await log.runAll({
+  for (final MapEntry(key: package, value: tests) in _packages.entries)
+    package: (lane) => _publish(lane, tests),
+}, concurrency: 3);
+exitCode = result.exitCode;
 ```
 
-A lane logs a child process with `await lane.pipe(process)`, which also
-kills the process when the user cancels the lane.
+For full control, create lanes with `log.lane(name)`, run tasks with
+`log.run(name, task)` and call `log.finish()` in a `finally`. `run` throws
+what the task throws, or a `GgParallelLogCancelledException` as soon as
+the user cancels the lane. A lane logs a child process with
+`await lane.pipe(process)` and kills the whole process tree on cancel.
 
 ### Keys
 
@@ -81,11 +68,13 @@ kills the process when the user cancels the lane.
 | Overview | `q` `q` | Cancel all running lanes |
 | Both | `x` `x` | Cancel the selected lane |
 | Both | `s` | Save the output of the lane to a file |
-| Fullscreen | `↑` `↓` `PgUp` `PgDn` `Home` `End` | Scroll; `End` follows the output |
+| Fullscreen | `↑` `↓` / `k` `j` | Scroll by a line |
+| Fullscreen | `b` `Space` / `PgUp` `PgDn` | Scroll by a page |
+| Fullscreen | `g` `G` / `Home` `End` | Jump to the top, follow the end |
 | Fullscreen | `←` `→` | Switch to the previous or next lane |
 | Fullscreen | `/` `n` `N` | Search, jump to the next or previous match |
 | Fullscreen | `Esc` | Back to the overview |
-| Anywhere | `Ctrl+C` | Cancel all lanes; a second time exits |
+| Anywhere | `Ctrl+C` | Cancel all lanes; a second time exits with 130 |
 
 ![A failed lane in fullscreen with a search](doc/images/detail_search.png)
 
@@ -98,17 +87,33 @@ the result table comes last:
 Without a terminal, e.g. on CI or in a pipe, the log writes each line
 prefixed with its lane, followed by the same summary.
 
+## Platforms
+
+The live view runs on Linux, macOS and Windows. Keys are read straight
+from the console (`poll` on POSIX, the console input on Windows), so
+Dart's `stdin` stays untouched and a program can still ask the user
+afterwards. While the view is open, `Ctrl+C`, `Ctrl+Z` and `Ctrl+S` arrive
+as keys instead of signals, so child processes are not hit by them. The
+terminal state is saved with `stty -g` and restored on `finish`, on
+`SIGTERM` and on `SIGHUP`; should the program crash, a small watchdog
+process restores it on POSIX, and Dart does so on Windows. CI runs the tests on all three systems and
+drives the live view in tmux on Linux and macOS
+([tool/interactive_smoke_test.sh](tool/interactive_smoke_test.sh)).
+
 ## Limitations
 
-- It logs, it does not schedule: how many tasks run at once and in which
-  order is up to the caller
-- The interactive view reads stdin, which a process can listen to only
-  once; tasks must not read stdin while the view is open
+- Cancelling is cooperative for tasks: `run` returns at once, but a task
+  keeps running until it checks `lane.isCancelled`; piped processes are
+  killed with their whole tree
 - Output written directly to stdout, e.g. by a child process started with
   `inheritStdio`, bypasses the lanes and breaks the view; pipe it into a
   lane instead
-- Wide characters are measured with a built-in table; rare emoji may be
-  off by one column
+- Widths come from a built-in table: rare emoji and terminals that draw
+  ambiguous characters wide may be off by a column
+- The output is UTF-8; a terminal with another encoding shows the
+  symbols garbled
+- GNU screen without `altscreen on` cannot show the fullscreen view
+  cleanly
 
 ## Documentation
 

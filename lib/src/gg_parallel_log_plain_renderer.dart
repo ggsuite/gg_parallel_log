@@ -16,28 +16,31 @@ import 'gg_parallel_log_text.dart';
 
 // #############################################################################
 /// Writes every line prefixed with its lane, for CI, pipes and dumb terminals.
-class GgParallelLogPlain implements GgParallelLogRenderer {
+class GgParallelLogPlainRenderer implements GgParallelLogRenderer {
   /// Creates a renderer writing to [terminal].
-  GgParallelLogPlain({required this.terminal});
+  GgParallelLogPlainRenderer({required this.terminal});
 
   /// Creates an example renderer writing to a fake terminal.
-  factory GgParallelLogPlain.example({GgParallelLogTerminal? terminal}) =>
-      GgParallelLogPlain(
-        terminal: terminal ?? GgParallelLogFakeTerminal(isInteractive: false),
-      );
+  factory GgParallelLogPlainRenderer.example({
+    GgParallelLogTerminal? terminal,
+  }) => GgParallelLogPlainRenderer(
+    terminal: terminal ?? GgParallelLogFakeTerminal(isInteractive: false),
+  );
 
   // ...........................................................................
   @override
   void start() {}
 
   // ...........................................................................
+  /// Writes [line], or the new status of [lane] when [line] is null.
+  ///
+  /// Keeps writing after [finish], so late lines still reach the log.
   @override
   void laneChanged(GgParallelLogLane lane, GgParallelLogLine? line) {
     final prefix = darkGray('[${lane.name}]');
     if (line != null) {
-      terminal.write(
-        '$prefix ${line.isError ? cError(line.text) : line.text}\n',
-      );
+      final text = line.isError ? cError(line.text) : line.text;
+      terminal.write('$prefix $text\n');
       return;
     }
     switch (lane.status) {
@@ -45,14 +48,13 @@ class GgParallelLogPlain implements GgParallelLogRenderer {
         return;
       case GgParallelLogStatus.running:
         terminal.write('$prefix started\n');
-        return;
       default:
-        break;
+        final time = GgParallelLogText.duration(lane.elapsed);
+        terminal.write(
+          '${lane.status.icon(0)} ${lane.name} ${lane.status.name} '
+          'after $time\n',
+        );
     }
-    final time = GgParallelLogText.duration(lane.elapsed);
-    terminal.write(
-      '${lane.status.icon(0)} ${lane.name} ${lane.status.name} after $time\n',
-    );
   }
 
   // ...........................................................................

@@ -15,28 +15,11 @@ import 'package:gg_status_printer/gg_status_printer.dart';
 /// Simulates publishing eight packages, three of them at a time.
 Future<void> main() async {
   final log = GgParallelLog(title: 'gg do publish');
-  final queue = [..._packages.keys];
-  for (final package in queue) {
-    log.lane(package);
-  }
-
-  Future<void> worker() async {
-    while (queue.isNotEmpty) {
-      final package = queue.removeAt(0);
-      try {
-        await log.run(package, (lane) => _publish(lane, _packages[package]!));
-      } catch (_) {
-        // The lane shows the error; the other packages go on.
-      }
-    }
-  }
-
-  try {
-    await Future.wait([for (var i = 0; i < 3; i++) worker()]);
-  } finally {
-    // Restores the terminal and leaves the summary, even after a crash.
-    await log.finish();
-  }
+  final result = await log.runAll({
+    for (final MapEntry(key: package, value: tests) in _packages.entries)
+      package: (lane) => _publish(lane, tests),
+  }, concurrency: 3);
+  exitCode = result.exitCode;
 }
 
 /// The packages with the number of their tests.
@@ -55,7 +38,7 @@ final _random = Random(7);
 
 // .............................................................................
 Future<void> _publish(GgParallelLogLane lane, int tests) async {
-  final sdk = await Process.start(Platform.resolvedExecutable, ['--version']);
+  final sdk = await Process.start('dart', ['--version'], runInShell: true);
   await lane.pipe(sdk);
 
   await _step(lane, 'Running "dart pub get"', 800);
@@ -64,7 +47,6 @@ Future<void> _publish(GgParallelLogLane lane, int tests) async {
     lane.logError('Warning: 2 files are not formatted, fixed them.');
   }
   await _test(lane, tests);
-  if (lane.isCancelled) return;
   await _step(lane, 'Publishing to pub.dev', 1200);
   print('Published ${lane.name} 1.${_random.nextInt(9)}.${_random.nextInt(9)}');
 }
@@ -80,8 +62,7 @@ Future<void> _step(GgParallelLogLane lane, String message, int ms) =>
 Future<void> _test(GgParallelLogLane lane, int tests) async {
   final failing = lane.name == 'gg_one';
   var failed = 0;
-  for (var i = 1; i <= tests; i++) {
-    if (lane.isCancelled) return;
+  for (var i = 1; i <= tests && !lane.isCancelled; i++) {
     await _sleep(15 + _random.nextInt(60));
     final file = 'test/${lane.name}_${i % 7}_test.dart';
     if (failing && i % 30 == 0) {

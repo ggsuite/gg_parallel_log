@@ -9,17 +9,20 @@ import 'package:test/test.dart';
 
 void main() {
   group('GgParallelLogLine', () {
-    test('is no error by default', () {
-      const line = GgParallelLogLine(text: 'a', time: Duration.zero);
-      expect(line.isError, isFalse);
+    group('GgParallelLogLine(text, time, isError)', () {
+      test('is no error by default', () {
+        final line = GgParallelLogLine(text: 'a', time: Duration.zero);
+        expect(line.isError, isFalse);
+      });
     });
 
     group('example()', () {
       test('has realistic defaults', () {
         final line = GgParallelLogLine.example();
-        expect(line.text, '00:03 +12: All tests passed!');
-        expect(line.time, const Duration(seconds: 3));
-        expect(line.isError, isFalse);
+        expect(
+          [line.text, line.time, line.isError],
+          ['00:03 +12: All tests passed!', const Duration(seconds: 3), false],
+        );
       });
 
       test('takes the values a test cares about', () {
@@ -32,6 +35,30 @@ void main() {
           [line.text, line.time, line.isError],
           ['boom', Duration.zero, true],
         );
+      });
+    });
+
+    group('searchText', () {
+      test('is the text in lower case', () {
+        final line = GgParallelLogLine.example(text: 'Expected: ÄÖÜ');
+        expect(line.searchText, 'expected: äöü');
+      });
+
+      test('has no colors, cursor moves or OSC links', () {
+        const link = '\x1B]8;;https://ggsuite.dev\x07Link\x1B]8;;\x07';
+        final line = GgParallelLogLine.example(
+          text: '\x1B[31mFAIL\x1B[0m $link\x1B[2K',
+        );
+        expect(line.searchText, 'fail link');
+      });
+
+      test('keeps emoji and wide characters', () {
+        final line = GgParallelLogLine.example(text: '✅ 中文 😀');
+        expect(line.searchText, '✅ 中文 😀');
+      });
+
+      test('is empty for an empty line', () {
+        expect(GgParallelLogLine.example(text: '').searchText, '');
       });
     });
   });

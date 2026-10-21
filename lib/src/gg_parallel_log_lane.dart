@@ -11,12 +11,15 @@ import 'dart:io';
 
 import 'package:clock/clock.dart';
 import 'package:gg_status_printer/gg_status_printer.dart';
+import 'package:meta/meta.dart';
 
 import 'gg_parallel_log_line.dart';
+import 'gg_parallel_log_process_tree.dart';
 import 'gg_parallel_log_status.dart';
 import 'gg_parallel_log_text.dart';
 
-/// Is called when a lane got a new [line] or, with a null line, a new status.
+// #############################################################################
+/// Reports that a lane got a new line or, with a null line, a new status.
 typedef GgParallelLogLaneChanged = void Function(
   GgParallelLogLane lane,
   GgParallelLogLine? line,
@@ -28,29 +31,36 @@ typedef GgParallelLogLaneChanged = void Function(
 /// Pass [log] wherever a `GgLog` is expected.
 class GgParallelLogLane {
   /// Creates a waiting lane called [name] that reports changes to [onChange].
-  GgParallelLogLane({required this.name, GgParallelLogLaneChanged? onChange})
-    : _onChange = onChange ?? _ignore,
-      _createdAt = clock.now();
+  GgParallelLogLane({
+    required this.name,
+    GgParallelLogLaneChanged? onChange,
+    GgParallelLogProcessTree? processTree,
+  }) : _onChange = onChange ?? _ignore,
+       _processTree = processTree ?? GgParallelLogProcessTree(),
+       _createdAt = clock.now();
 
   /// Creates an example lane for tests and docs.
   factory GgParallelLogLane.example({
     String? name,
     GgParallelLogLaneChanged? onChange,
-  }) => GgParallelLogLane(name: name ?? 'gg_log', onChange: onChange);
+    GgParallelLogProcessTree? processTree,
+  }) => GgParallelLogLane(
+    name: name ?? 'gg_log',
+    onChange: onChange,
+    processTree: processTree,
+  );
 
   // ...........................................................................
-  /// Appends [message] to the output; usable wherever a `GgLog` is expected.
-  ///
-  /// A message starting with the carriage return of `GgStatusPrinter`
-  /// replaces the previous line, so status printers update in place.
+  /// Appends [message]; a status printer line replaces the previous line.
   void log(String message) => _append(message, isError: false);
 
   // ...........................................................................
-  /// Appends [message] to the output and marks it as error output.
+  /// Appends [message] and marks it as error output.
   void logError(String message) => _append(message, isError: true);
 
   // ...........................................................................
   /// Marks a waiting lane as running and starts its clock.
+  @internal
   void start() {
     if (_status != GgParallelLogStatus.waiting) return;
     _status = GgParallelLogStatus.running;
@@ -60,10 +70,12 @@ class GgParallelLogLane {
 
   // ...........................................................................
   /// Marks the lane as completed successfully.
+  @internal
   void succeed() => _finish(GgParallelLogStatus.success);
 
   // ...........................................................................
   /// Logs [error] and marks the lane as failed.
+  @internal
   void fail(Object error) {
     if (status.isDone) return;
     logError('$error');
@@ -71,25 +83,42 @@ class GgParallelLogLane {
   }
 
   // ...........................................................................
-  /// Cancels the lane, kills its piped processes and completes [whenCancelled].
+  /// Cancels the lane, kills its running piped processes, see [whenKilled].
   void cancel() {
     if (status.isDone) return;
     _finish(GgParallelLogStatus.cancelled);
     _cancelled.complete();
+    _processes.forEach(_kill);
   }
 
   // ...........................................................................
-  /// Logs the output of [process] and kills it when the lane is cancelled.
+  /// Logs the output of [process] and kills its tree when the lane cancels.
   ///
-  /// Returns the exit code once the process and its output are done.
-  Future<int> pipe(Process process) async {
-    unawaited(whenCancelled.then((_) => process.kill()));
-    final done = [
-      _decodeLines(process.stdout).forEach(log),
-      _decodeLines(process.stderr).forEach(logError),
+  /// Returns the exit code, waiting at most [drain] for open output after.
+  Future<int> pipe(
+    Process process, {
+    Duration drain = const Duration(seconds: 2),
+  }) async {
+    if (isCancelled) {
+      _kill(process);
+    } else {
+      _processes.add(process);
+    }
+    final subscriptions = [
+      _decodeLines(process.stdout).listen(log),
+      _decodeLines(process.stderr).listen(logError),
+    ];
+    // Created now, as output that closes before the exit completes them.
+    final closed = [
+      for (final subscription in subscriptions)
+        subscription.asFuture<void>().catchError((_) {}),
     ];
     final exitCode = await process.exitCode;
-    await Future.wait<void>(done);
+    _processes.remove(process);
+    await Future.wait(closed).timeout(drain, onTimeout: () => []);
+    for (final subscription in subscriptions) {
+      unawaited(subscription.cancel());
+    }
     return exitCode;
   }
 
@@ -110,11 +139,14 @@ class GgParallelLogLane {
     return (_finishedAt ?? clock.now()).difference(startedAt);
   }
 
-  /// True when the lane was cancelled.
+  /// Whether the lane was cancelled.
   bool get isCancelled => _status == GgParallelLogStatus.cancelled;
 
   /// Completes when the lane gets cancelled.
   Future<void> get whenCancelled => _cancelled.future;
+
+  /// Completes when the processes killed by [cancel] are gone.
+  Future<void> get whenKilled => Future.wait(_kills);
 
   /// The text of the last line without colors, or an empty string.
   String get lastLine =>
@@ -125,32 +157,50 @@ class GgParallelLogLane {
   // ######################
 
   final GgParallelLogLaneChanged _onChange;
+  final GgParallelLogProcessTree _processTree;
   final DateTime _createdAt;
   final List<GgParallelLogLine> _lines = [];
   final Completer<void> _cancelled = Completer<void>();
+  final Set<Process> _processes = {};
+  final List<Future<void>> _kills = [];
   GgParallelLogStatus _status = GgParallelLogStatus.waiting;
   DateTime? _startedAt;
   DateTime? _finishedAt;
+
+  // ...........................................................................
+  /// Kills the tree of [process]; a failing kill must not crash the log.
+  void _kill(Process process) =>
+      _kills.add(_processTree.kill(process.pid).catchError((Object _) {}));
 
   // ...........................................................................
   static void _ignore(GgParallelLogLane lane, GgParallelLogLine? line) {}
 
   // ...........................................................................
   void _append(String message, {required bool isError}) {
-    for (final part in message.split('\n')) {
+    final trimmed = message.endsWith('\n')
+        ? message.substring(0, message.length - 1)
+        : message;
+    for (final part in trimmed.split('\n')) {
       final replace = part.startsWith(GgStatusPrinter.carriageReturn);
-      final text = part.replaceAll(GgStatusPrinter.carriageReturn, '');
       final line = GgParallelLogLine(
-        text: GgParallelLogText.sanitize(text),
+        text: GgParallelLogText.sanitize(
+          part.replaceAll(GgStatusPrinter.carriageReturn, ''),
+        ),
         time: clock.now().difference(_startedAt ?? _createdAt),
         isError: isError,
       );
-      if (replace && _lines.isNotEmpty) {
-        _lines.last = line;
-      } else {
-        _lines.add(line);
-      }
+      _add(line, replace: replace);
       _onChange(this, line);
+    }
+  }
+
+  // ...........................................................................
+  /// Adds [line], or replaces the last line unless that one is an error.
+  void _add(GgParallelLogLine line, {required bool replace}) {
+    if (replace && _lines.isNotEmpty && !_lines.last.isError) {
+      _lines.last = line;
+    } else {
+      _lines.add(line);
     }
   }
 

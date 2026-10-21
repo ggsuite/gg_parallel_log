@@ -9,9 +9,13 @@
 library;
 
 export 'src/gg_parallel_log.dart';
+export 'src/gg_parallel_log_cancelled_exception.dart';
+export 'src/gg_parallel_log_console.dart';
 export 'src/gg_parallel_log_fake_terminal.dart';
 export 'src/gg_parallel_log_lane.dart';
 export 'src/gg_parallel_log_line.dart';
+export 'src/gg_parallel_log_process_tree.dart';
+export 'src/gg_parallel_log_result.dart';
 export 'src/gg_parallel_log_status.dart';
 export 'src/gg_parallel_log_stdio_terminal.dart';
 export 'src/gg_parallel_log_terminal.dart';

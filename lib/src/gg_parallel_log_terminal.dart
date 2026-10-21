@@ -8,7 +8,7 @@
 /// The terminal a parallel log draws on and reads keys from.
 abstract interface class GgParallelLogTerminal {
   // ...........................................................................
-  /// True when the terminal can show the interactive view.
+  /// Whether the terminal can show the interactive view.
   bool get isInteractive;
 
   /// The number of columns.
@@ -20,16 +20,21 @@ abstract interface class GgParallelLogTerminal {
   /// The raw key input of the terminal.
   Stream<String> get input;
 
-  /// Emits whenever the user presses Ctrl+C.
+  /// Emits whenever the process gets a Ctrl+C signal.
   Stream<void> get interrupts;
+
+  /// Emits an exit code whenever the process is asked to terminate.
+  Stream<int> get terminations;
 
   // ...........................................................................
   /// Writes [text] as it is, escape sequences included.
   void write(String text);
 
   // ...........................................................................
-  /// Delivers every key immediately and stops echoing it.
-  void enableRawMode();
+  /// Delivers every key at once, Ctrl+C included, and stops echoing.
+  ///
+  /// Returns false when the terminal cannot do that.
+  bool enableRawMode();
 
   // ...........................................................................
   /// Restores the mode the terminal had before [enableRawMode].

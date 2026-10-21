@@ -10,11 +10,10 @@ import 'package:test/test.dart';
 void main() {
   group('GgParallelLogTerminal', () {
     test('is implemented by the fake and the stdio terminal', () {
-      expect(GgParallelLogFakeTerminal.example(), isA<GgParallelLogTerminal>());
-      expect(
+      expect([
+        GgParallelLogFakeTerminal.example(),
         GgParallelLogStdioTerminal.example(),
-        isA<GgParallelLogTerminal>(),
-      );
+      ], everyElement(isA<GgParallelLogTerminal>()));
     });
   });
 }

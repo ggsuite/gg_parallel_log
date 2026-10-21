@@ -14,7 +14,7 @@ void main() {
 
   group('GgParallelLogStatus', () {
     group('isDone', () {
-      test('is true for success, error and cancelled', () {
+      test('is true for success, error and cancelled only', () {
         expect(GgParallelLogStatus.values.where((s) => s.isDone), [
           GgParallelLogStatus.success,
           GgParallelLogStatus.error,
@@ -34,14 +34,49 @@ void main() {
         ]);
       });
 
-      test('animates the spinner and wraps around', () {
-        expect(GgParallelLogStatus.running.icon(1), '⠙');
-        expect(GgParallelLogStatus.running.icon(10), '⠋');
+      test('shows the spinner frame by frame and wraps around', () {
+        expect(
+          [for (var f = 0; f < 11; f++) GgParallelLogStatus.running.icon(f)],
+          [...GgParallelLogStatus.spinner, '⠋'],
+        );
+      });
+
+      test('ignores the frame when not running', () {
+        expect(
+          [
+            GgParallelLogStatus.success.icon(0),
+            GgParallelLogStatus.success.icon(7),
+          ],
+          ['✓', '✓'],
+        );
       });
 
       test('colors the icon when colors are enabled', () {
         ggColorsEnabled = true;
-        expect(GgParallelLogStatus.success.icon(0), green('✓'));
+        expect(GgParallelLogStatus.values.map((s) => s.icon(1)), [
+          darkGray('○'),
+          cyan('⠙'),
+          green('✓'),
+          red('✗'),
+          yellow('⊘'),
+        ]);
+      });
+    });
+
+    group('spinner', () {
+      test('holds ten braille frames', () {
+        expect(GgParallelLogStatus.spinner, [
+          '⠋',
+          '⠙',
+          '⠹',
+          '⠸',
+          '⠼',
+          '⠴',
+          '⠦',
+          '⠧',
+          '⠇',
+          '⠏',
+        ]);
       });
     });
   });
