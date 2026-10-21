@@ -20,8 +20,9 @@ rm -f "$status" "$modes"
 
 dart compile exe example/gg_parallel_log_example.dart -o "$exe" > /dev/null
 tmux kill-session -t "$session" 2> /dev/null || true
+# On GitHub the log writes plain lines; this test wants the live view.
 tmux new-session -d -s "$session" -x 100 -y 30 \
-  "$exe; echo \$? > $status; stty -a > $modes; sleep 60"
+  "env -u GITHUB_ACTIONS $exe; echo \$? > $status; stty -a > $modes; sleep 60"
 trap 'tmux kill-session -t "$session" 2> /dev/null || true' EXIT
 
 screen() { tmux capture-pane -t "$session" -p; }

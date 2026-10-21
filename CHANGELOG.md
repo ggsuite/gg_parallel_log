@@ -18,9 +18,4 @@
 ### Changed
 
 - Restructure the logger and support Linux and macOS
-
-Split the interactive renderer into controller, keymap and screen
-Read keys from the console instead of stdin on all platforms
-Restore the terminal after crashes with a watchdog on POSIX
-Add runAll, results, cancel exception and process tree killing
-Run the tests on Linux, macOS and Windows in CI
+- Drive the live view in CI despite GITHUB_ACTIONS
